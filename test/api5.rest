@@ -1,0 +1,10 @@
+POST  http://192.168.2.108:18082/test HTTP/1.1
+Content-Type:  application/json
+
+{
+    "cron_id": "post_test_date",
+    "cron_type": "post",
+    "cron_body": "date_1",
+    "cron_time_trigger": "date",
+    "cron_time_body": {"run_date": "2019-12-05 14:14:00"}
+}
