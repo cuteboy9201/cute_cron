@@ -18,10 +18,15 @@ import tornado.web
 from oslo.db.module import mysqlHanlder
 from tornado.log import enable_pretty_logging
 from tornado.options import define, options
-from rpc.mq_client import PikaConsumer
-from rpc.mq_server import PikaPublisher
+from rpc.rabbit import RabbitClient, RabbitServer
 from configs.setting import (ALLOW_HOST, COOKIE_SECRET, HOST, LOGFILE, PORT,
                              PROJECT_NAME)
+
+from configs.setting import (MQ_URL, MQ_CLIENT_EXCHANGE, MQ_CLIENT_ROUTING_KEY,
+                             MQ_CLIENT_QUEUE)
+from configs.setting import (MQ_SERVER_EXCHANGE, MQ_SERVER_QUEUE,
+                             MQ_SERVER_ROUTING_KEY)
+
 from utils.cron import scheduler
 
 debug = os.environ.get("RUN_ENV")
@@ -110,25 +115,29 @@ class WebApp():
             define("allow_host", default=ALLOW_HOST, help="allow host")
         define("host", default=HOST, help="run on this host", type=str)
         define("port", default=PORT, help="run on this port", type=int)
-
+        self.io_loop = tornado.ioloop.IOLoop.instance()
         LOG.info(options.allow_host)
+
+    def initmq(self):
+        Application.mq_client = RabbitClient(io_loop=self.io_loop,
+                                             amqp_url=MQ_URL,
+                                             queue_name=MQ_CLIENT_QUEUE,
+                                             routing_key=MQ_CLIENT_ROUTING_KEY,
+                                             exchange=MQ_CLIENT_EXCHANGE)
+        Application.mq_client.connect()
+
+        Application.mq_server = RabbitServer(self.io_loop,
+                                             amqp_url=MQ_URL,
+                                             exchange=MQ_SERVER_EXCHANGE,
+                                             queue_name=MQ_SERVER_QUEUE,
+                                             routing_key=MQ_SERVER_ROUTING_KEY)
+        Application.mq_server.connect()
 
     def run(self):
         enable_pretty_logging()
-        io_loop = tornado.ioloop.IOLoop.instance()
-        # rabbitmq inti
-        Application.mq = PikaConsumer(
-            io_loop,
-            "amqp://admin:admin@192.168.2.132:5672/my_vhost",
-            queue_name="text3",
-            routing_key="cute.cron")
-        Application.mq.connect()
 
-        Application.mq_server = PikaPublisher(
-            io_loop, "amqp://admin:admin@192.168.2.132:5672/my_vhost")
-        Application.mq_server.connect()
+        self.initmq()
 
-        # Application.mq_server.send_msg()
         http_server = tornado.httpserver.HTTPServer(Application(),
                                                     xheaders=True)
 
@@ -142,11 +151,11 @@ class WebApp():
             LOG.info("start app [%s] for %s:%s", PROJECT_NAME, options.host,
                      options.port)
         try:
-            # scheduler.start()
-            io_loop.start()
+            scheduler.start()
+            self.io_loop.start()
         except (KeyboardInterrupt, SystemExit):
-            # scheduler.shutdown(wait=True)
-            io_loop.stop()
+            scheduler.shutdown(wait=True)
+            self.io_loop.stop()
 
     def stop(self):
         tornado.ioloop.IOLoop.instance().stop()

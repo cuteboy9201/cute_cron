@@ -15,11 +15,10 @@ import apscheduler
 from oslo.form.form import form_error
 from oslo.web.requesthandler import MixinRequestHandler
 from oslo.web.route import route
-
+from tornado import gen
 from forms.cron import (CronDeleteForm, CronGetForm, CronPatchForm,
                         CronPostFrom, CronPutForm)
 from utils.cron import register_task, scheduler
-from rpc.mq_server import PikaPublisher
 
 LOG = logging.getLogger(__name__)
 
@@ -204,10 +203,22 @@ class CronTaskHandler(MixinRequestHandler):
 
 @route("/test/mq/")
 class TestHandler(MixinRequestHandler):
+    @gen.coroutine
     def get(self):
+        hostinfo = [
+            dict(host="192.168.2.132",
+                 port=22051,
+                 user="root",
+                 password="",
+                 ansible_ssh_private_key_file="~/.ssh/youshumin"),
+        ]
         mq_server = self.application.mq_server
-        ok = mq_server.send_msg("adasfasdfasdf")
-        if ok:
-            print(ok)
-            return self.send_ok(data={"msg": ok})
-        return self.send_fail()
+
+        data = dict(msg_id="2019-12-15",
+                    msg_task="setup",
+                    msg_data=hostinfo,
+                    msg_return=True)
+        from configs.setting import MQ_ANSIBLE_EXCHANGE, MQ_ANSIBLE_ROUTING_KEY
+        yield mq_server.send_msg(json.dumps(data), MQ_ANSIBLE_EXCHANGE,
+                                 MQ_ANSIBLE_ROUTING_KEY)
+        return self.send_ok(data="")
